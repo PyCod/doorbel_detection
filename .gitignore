@@ -1,0 +1,6 @@
+*_data/*
+bell_detector/creds.py
+*.pyc
+*.wav
+
+.vscode
