@@ -1,8 +1,7 @@
 import logging
 import os
-from queue import Queue
-from threading import Thread
-from time import time, sleep
+from multiprocessing import Process, Queue
+from time import time
 from datetime import date
 
 from pyAudioAnalysis import audioTrainTest as aT
@@ -10,7 +9,6 @@ from pyAudioAnalysis import MidTermFeatures as aF
 
 from pushover import init, Client
 
-import sounddevice as sd
 import soundfile as sf
 
 from creds import app_token, client_token
@@ -20,10 +18,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 logger = logging.getLogger(__name__)
 
-class PushWorker(Thread):
+class PushWorker(Process):
 
     def __init__(self, notif_queue):
-        Thread.__init__(self)
+        Process.__init__(self)
         self.notif_queue = notif_queue
 
         init(app_token)
@@ -38,13 +36,13 @@ class PushWorker(Thread):
                 for client in self.members:
                     client.send_message("Deurbel!")
                 self.last_pinged = time()
-            self.notif_queue.task_done()
+            # self.notif_queue.task_done()
 
 
-class SaveWorker(Thread):
+class SaveWorker(Process):
 
     def __init__(self, save_queue, location='triggers', sr=22050):
-        Thread.__init__(self)
+        Process.__init__(self)
         self.save_queue = save_queue
         self.location = location
         self.sr = sr
@@ -54,30 +52,33 @@ class SaveWorker(Thread):
             recording = self.save_queue.get()
             sf.write(os.path.join(self.location, f'{date.today()}.wav'),
                      recording, self.sr, subtype='PCM_24')
-            self.save_queue.task_done()
+            # self.save_queue.task_done()
 
 
-class RecordingWorker(Thread):
+class RecordingWorker(Process):
 
     def __init__(self, bell_queue, seconds, sr):
-        Thread.__init__(self)
+        Process.__init__(self)
         self.bell_queue = bell_queue
         self.seconds = seconds
         self.sr = sr
 
     def run(self):
+        import sounddevice as sd
         while True:
+            start_recording = time()
             # Get the work from the bell_queue and expand the tuple
             recording = sd.rec(int(self.seconds * self.sr), samplerate=self.sr, channels=1)
             sd.wait()
             self.bell_queue.put((self.sr, recording.reshape(recording.shape[0])))
+            logging.info(f'Elapsed Recording Time: {time() - start_recording}')
 
 
-class DetectionWorker(Thread):
+class DetectionWorker(Process):
 
     def __init__(self, bell_queue, notif_queue, save_queue,
                  model_name, model_type):
-        Thread.__init__(self)
+        Process.__init__(self)
         self.bell_queue = bell_queue
         self.notif_queue = notif_queue
         self.save_queue = save_queue
@@ -127,47 +128,50 @@ class DetectionWorker(Thread):
             except Exception as e:
                 print(e)
             finally:
-                self.bell_queue.task_done()
-            logging.debug(f'Elapsed Detection Time: {time() - start_detection}')
-            logging.debug(f'Queue size: {self.bell_queue.qsize()}')
+                # self.bell_queue.task_done()
+                pass
+            logging.info(f'Elapsed Detection Time: {time() - start_detection}')
+            logging.info(f'Queue size: {self.bell_queue.qsize()}')
 
 
 def main():
-    # Create a bell_queue to communicate with the worker threads
+    # Create a bell_queue to communicate with the worker Processs
     bell_queue = Queue()
     # Create a notif_queue to send push notifications
     notif_queue = Queue()
     # Create a save_queue to save sounds for later reuse in training
     save_queue = Queue()
 
-    # Start processing thread first
+    # Start processing Process first
     det_worker = DetectionWorker(bell_queue, notif_queue, save_queue,
                                  'model/svm_bell', 'svm')
-    # Setting daemon to True will let the main thread exit even though the workers are blocking
-    det_worker.daemon = False
+    # Setting daemon to True will let the main Process exit even though the workers are blocking
+    det_worker.daemon = True
     det_worker.start()
 
     # Start recording
     rec_worker = RecordingWorker(bell_queue, 0.5, 22050)
-    # Setting daemon to True will let the main thread exit even though the workers are blocking
-    rec_worker.daemon = False
+    # Setting daemon to True will let the main Process exit even though the workers are blocking
+    rec_worker.daemon = True
     rec_worker.start()
 
     # Start the push notification listener
     notif_worker = PushWorker(notif_queue)
-    # Setting daemon to True will let the main thread exit even though the workers are blocking
-    notif_worker.daemon = False
+    # Setting daemon to True will let the main Process exit even though the workers are blocking
+    notif_worker.daemon = True
     notif_worker.start()
 
     # Start the saving worker which will save all bell instances
     save_worker = SaveWorker(save_queue)
-    # Setting daemon to True will let the main thread exit even though the workers are blocking
-    save_worker.daemon = False
+    # Setting daemon to True will let the main Process exit even though the workers are blocking
+    save_worker.daemon = True
     save_worker.start()
 
-    # Causes the main thread to wait for the bell_queue to finish processing all the tasks
-    bell_queue.join()
-    notif_queue.join()
+    # Causes the main Process to wait for the bell_queue to finish processing all the tasks
+    det_worker.join()
+    rec_worker.join()
+    notif_worker.join()
+    save_worker.join()
 
 if __name__ == '__main__':
     main()
