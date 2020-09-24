@@ -3,7 +3,7 @@ import os
 from queue import Queue
 from threading import Thread
 from time import time, sleep
-from datetime import date
+from datetime import datetime
 
 from pyAudioAnalysis import audioTrainTest as aT
 from pyAudioAnalysis import MidTermFeatures as aF
@@ -33,10 +33,10 @@ class PushWorker(Thread):
 
     def run(self):
         while True:
-            _ = self.notif_queue.get()
+            datetimestr = self.notif_queue.get()
             if time() - self.last_pinged > 5:
                 for client in self.members:
-                    client.send_message("Deurbel!")
+                    client.send_message(f'http://192.168.0.128:8080/{datetimestr}.wav')
                 self.last_pinged = time()
             self.notif_queue.task_done()
 
@@ -51,8 +51,8 @@ class SaveWorker(Thread):
 
     def run(self):
         while True:
-            recording = self.save_queue.get()
-            sf.write(os.path.join(self.location, f'{date.today()}.wav'),
+            recording, datetimestr = self.save_queue.get()
+            sf.write(os.path.join(self.location, f'{datetimestr}.wav'),
                      recording, self.sr, subtype='PCM_24')
             self.save_queue.task_done()
 
@@ -122,8 +122,9 @@ class DetectionWorker(Thread):
                 logging.info(class_out)
                 if class_out == 0:
                     logging.info('Sending push notification to queue!')
-                    self.notif_queue.put(True)
-                    self.save_queue.put(recording)
+                    datetimestr = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+                    self.notif_queue.put((datetimestr))
+                    self.save_queue.put((recording, datetimestr))
             except Exception as e:
                 print(e)
             finally:
