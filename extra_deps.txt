@@ -1,4 +1,6 @@
-sudo apt-get install libatlas-base-dev
+sudo apt-get install libatlas-base-dev llvm-9
+sudo apt-get install build-essential libssl-dev libffi-dev python-dev
+sudo apt install swig libjpeg-dev zlib1g-dev python3-dev python3-numpy unzip wget python3-pip curl git cmake make
 
 and put
 
@@ -15,3 +17,5 @@ pcm.!default {
 }
 
 in ~/.asoundrc
+
+LLVM_CONFIG=llvm-config-9 pip install -r requirements.txt
